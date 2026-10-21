@@ -317,3 +317,27 @@ footer{color:#718eaf}footer strong{color:#b6cce7}footer a{color:#52e3d9}
   border: 1px solid #52749b !important;
 }
 .voice-sos-panel input[type="checkbox"] { accent-color: #22d3c5; }
+/* Mobile navigation fix for AbhayaSetu */
+@media (max-width: 950px) {
+    .side-nav {
+        display: flex !important;
+        flex-direction: row;
+        flex-wrap: nowrap;
+        gap: 8px;
+        margin-top: 14px;
+        padding: 0 0 8px;
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: thin;
+    }
+
+    .side-nav .nav-link {
+        display: block;
+        flex: 0 0 auto;
+        white-space: nowrap;
+        padding: 10px 12px;
+        border-radius: 10px;
+        font-size: 12px;
+    }
+}
