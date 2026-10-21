@@ -4,7 +4,26 @@
 <section id="authScreen" class="auth-screen" aria-labelledby="authTitle">
   <div class="auth-card"><div class="auth-brand">A<span>+</span> <strong>AbhayaSetu</strong></div>
   <h1 id="authTitle">Welcome back</h1><p class="auth-subtitle">Sign in to access your personal journey workspace.</p>
-  <div class="auth-tabs"><button id="showLoginTab" type="button" class="auth-tab active">Log in</button><button id="showRegisterTab" type="button" class="auth-tab">Create account</button></div>
+  <div class="auth-tabs">
+  <button id="showLoginTab" type="button" class="auth-tab active">Log in</button>
+  <button id="showRegisterTab" type="button" class="auth-tab">Create account</button>
+</div>
+<button
+    id="tryDemoButton"
+    type="button"
+    class="auth-submit"
+    style="margin-top: 12px; background: #2563eb;"
+>
+    Try Reviewer Demo
+</button>
+
+<p style="font-size: 13px; color: #64748b; text-align: center;">
+    Explore a predefined Bengaluru location. No account required.
+</p>
+
+<p style="font-size:13px;color:#64748b;text-align:center;">
+  Explore a predefined Bengaluru location. No account required.
+</p>
   <form id="loginForm"><label>Email<input id="loginEmail" type="email" autocomplete="email" required maxlength="160"></label><label>Password<input id="loginPassword" type="password" autocomplete="current-password" required></label><button class="auth-submit" type="submit">Log in</button></form>
   <form id="registerForm" hidden><label>Your name<input id="registerName" autocomplete="name" required maxlength="100"></label><label>Email<input id="registerEmail" type="email" autocomplete="email" required maxlength="160"></label><label>Password <small>(at least 8 characters)</small><input id="registerPassword" type="password" autocomplete="new-password" minlength="8" required></label><button class="auth-submit" type="submit">Create account</button></form>
   <p id="authStatus" role="status" aria-live="polite"></p><p class="auth-disclaimer">Academic prototype. Use a test password, not a password you use elsewhere.</p></div>
@@ -27,13 +46,71 @@
 <script>
 (function(){const screen=document.getElementById('authScreen'),shell=document.getElementById('appShell'),login=document.getElementById('loginForm'),register=document.getElementById('registerForm'),status=document.getElementById('authStatus'),title=document.getElementById('authTitle');let started=false;
 function tab(which){const isLogin=which==='login';login.hidden=!isLogin;register.hidden=isLogin;document.getElementById('showLoginTab').classList.toggle('active',isLogin);document.getElementById('showRegisterTab').classList.toggle('active',!isLogin);title.textContent=isLogin?'Welcome back':'Create your account';status.textContent=''}
-document.getElementById('showLoginTab').addEventListener('click',()=>tab('login'));document.getElementById('showRegisterTab').addEventListener('click',()=>tab('register'));
+document.getElementById('showLoginTab').addEventListener('click',()=>tab('login'));
+document.getElementById('showRegisterTab').addEventListener('click',()=>tab('register'));
+
+document.getElementById('tryDemoButton').addEventListener('click', async () => {
+  const button = document.getElementById('tryDemoButton');
+  button.disabled = true;
+  button.textContent = 'Loading Demo...';
+
+  try {
+    const response = await fetch('/api/auth/logout', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({})
+    });
+
+    if (!response.ok) throw new Error('Could not start demo');
+
+    sessionStorage.setItem('abhayasetuReviewerDemo', 'true');
+    location.reload();
+  } catch (error) {
+    document.getElementById('authStatus').textContent =
+      'Could not start the demo. Please try again.';
+    button.disabled = false;
+    button.textContent = 'Try Reviewer Demo';
+  }
+});
 async function send(url,body){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(body)});const d=await r.json();if(!r.ok||!d.success)throw new Error(d.message||'Request failed');return d}
 async function enter(user){screen.hidden=true;shell.hidden=false;document.getElementById('signedInName').textContent='Hello, '+user.name; if(!started){started=true;window.startAbhayaSetu();}}
 login.addEventListener('submit',async e=>{e.preventDefault();status.textContent='Signing in…';try{const d=await send('/api/auth/login',{email:document.getElementById('loginEmail').value,password:document.getElementById('loginPassword').value});await enter(d.user)}catch(err){status.textContent=err.message}});
 register.addEventListener('submit',async e=>{e.preventDefault();status.textContent='Creating account…';try{const d=await send('/api/auth/register',{name:document.getElementById('registerName').value,email:document.getElementById('registerEmail').value,password:document.getElementById('registerPassword').value});await enter(d.user)}catch(err){status.textContent=err.message}});
-document.getElementById('logoutButton').addEventListener('click',async()=>{try{await send('/api/auth/logout',{});}catch(e){}location.reload()});
-fetch('/api/auth/me',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{if(d.authenticated)enter(d.user);else{screen.hidden=false;shell.hidden=true}}).catch(()=>{screen.hidden=false;shell.hidden=true});
+document.getElementById('logoutButton').addEventListener('click', async () => {
+    const button = document.getElementById('logoutButton');
+    button.disabled = true;
+
+    try {
+        await send('/api/auth/logout', {});
+    } catch (error) {
+        console.error('Logout failed:', error);
+    } finally {
+        // Exit reviewer demo mode
+        sessionStorage.removeItem('abhayasetuReviewerDemo');
+
+        // Return to the login screen
+        screen.hidden = false;
+        shell.hidden = true;
+
+        button.disabled = false;
+    }
+});
+fetch('/api/auth/me', {credentials: 'same-origin'})
+  .then(response => response.json())
+  .then(data => {
+    if (data.authenticated) {
+      enter(data.user);
+   } else if (sessionStorage.getItem('abhayasetuReviewerDemo') === 'true') {
+    enter({name: 'Reviewer Demo'});
+    } else {
+      screen.hidden = false;
+      shell.hidden = true;
+    }
+  })
+  .catch(() => {
+    screen.hidden = false;
+    shell.hidden = true;
+  });
 })();
 </script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="{{ url_for('static', filename='app.js') }}"></script><script>(function(){const g=document.getElementById('trackingModeBadge'),gv=document.getElementById('overviewGpsValue'),gf=document.getElementById('overviewGpsFoot'),e=document.getElementById('eventCount'),ev=document.getElementById('overviewEventsValue'),f=document.getElementById('geofenceStatus'),fv=document.getElementById('overviewFenceValue');if(g)new MutationObserver(()=>{let live=g.classList.contains('is-live');gv.textContent=live?'Active':'Standby';gf.textContent=live?'Browser location updating':'Waiting for location'}).observe(g,{childList:true,attributes:true,subtree:true});if(e)new MutationObserver(()=>ev.textContent=e.textContent||'0').observe(e,{childList:true,characterData:true,subtree:true});if(f)new MutationObserver(()=>fv.textContent=f.textContent||'Not created').observe(f,{childList:true,characterData:true,subtree:true});})();</script>
