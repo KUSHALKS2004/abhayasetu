@@ -1,0 +1,26 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment variables and secrets
+.env
+.env.*
+
+# Local databases and user data
+*.db
+*.sqlite
+*.sqlite3
+instance/
+
+# Local backups
+*backup*.py
+*before_gis*.py
+
+# Editor and operating system files
+.vscode/
+.DS_Store
