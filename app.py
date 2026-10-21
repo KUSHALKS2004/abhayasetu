@@ -523,6 +523,7 @@ def require_login_for_private_api():
         "/api/assess",
         "/api/boundary",
         "/api/grid-cell",
+        "/api/nearby-facilities",
     }
 
     if (

@@ -11,6 +11,7 @@ const CATEGORY={police:{label:"Police",color:"#2563eb"},hospitals:{label:"Hospit
 const map=L.map("map").setView([12.9716,77.5946],12);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"&copy; OpenStreetMap contributors"}).addTo(map);
 let locationMarker=null,selectedCellLayer=null,boundaryLayer=null,selectedPosition=null;
+let reviewerDemoMode = false;
 const facilityLayers={police:L.layerGroup().addTo(map),hospitals:L.layerGroup().addTo(map),bus_stops:L.layerGroup().addTo(map)};
 let facilityData={police:[],hospitals:[],bus_stops:[]};
 let geofence=null,geofenceCircle=null,simulatedMarker=null,movementTimer=null,movementRoute=[],movementIndex=0,previousInsideState=null,movementRunId=0,events=[],locationRequestId=0;
@@ -158,10 +159,62 @@ function installInfrastructureStyles(){
 
 function renderInfrastructureSupport(){if(!assessmentDetails||!currentAssessment)return;installInfrastructureStyles();const old=$("infrastructureSupportCard");if(old)old.remove();const card=document.createElement("section");card.id="infrastructureSupportCard";card.className="infrastructure-support-card";const heading=document.createElement("h3");heading.textContent="Mapped Infrastructure Support (1 km radius)";const status=document.createElement("p");status.className="infrastructure-support-status";const detail=document.createElement("p");const alert=document.createElement("p");alert.className="infrastructure-support-alert";const note=document.createElement("p");note.className="infrastructure-support-muted";const labels=[["police","Police"],["hospitals","Hospitals"],["bus_stops","Bus stops"]];const present=labels.filter(([key])=>(facilityData[key]||[]).length>0);const countText=labels.map(([key,label])=>`${label}: ${(facilityData[key]||[]).length} mapped records`).join(" · ");if(present.length===3){status.textContent="Multiple mapped support categories found";alert.textContent="Mapped records for police, hospitals and bus stops were returned. Confirm that locations are current and operational.";alert.classList.add("infrastructure-support-good")}else if(present.length===2){status.textContent="Some mapped support categories found";alert.textContent="Only two of the three mapped categories were returned within 1 km. Check nearby options and verify information independently."}else if(present.length===1){status.textContent="Limited mapped support categories found";alert.textContent="Only one mapped category was returned within 1 km. This may reflect incomplete map data; it does not mean the area is unsafe."}else{status.textContent="No mapped support categories returned";alert.textContent="No police, hospital or bus-stop records were returned within 1 km. This may reflect missing or incomplete data; it is not a danger prediction."}detail.textContent=countText;note.textContent="This is a transparent GIS coverage summary based on mapped feature records, not a crime/safety-risk score. Records may be duplicated or incomplete; distances are straight-line estimates.";card.append(heading,status,detail,alert,note);const ai=document.createElement("p");ai.className="infrastructure-support-muted";ai.textContent="AI incident-risk prediction: not enabled because no validated historical incident dataset is connected.";card.appendChild(ai);assessmentDetails.appendChild(card)}
 async function loadBoundary(){try{const data=await apiRequest("/api/boundary");const geo=data.feature??data.boundary??data;if(boundaryLayer)map.removeLayer(boundaryLayer);boundaryLayer=L.geoJSON(geo,{style:{color:"#2563eb",weight:3,fillColor:"#93c5fd",fillOpacity:.06}}).addTo(map);map.fitBounds(boundaryLayer.getBounds(),{padding:[15,15]});setStatus("Study boundary loaded. Select a point on the map.")}catch(error){console.error(error);setStatus(`Could not load boundary: ${error.message}`)}}
-async function checkLocation(lat,lon){const requestId=++locationRequestId;selectedPosition={lat:Number(lat),lng:Number(lon)};selectedLocation.textContent=`Latitude: ${lat.toFixed(6)}, Longitude: ${lon.toFixed(6)}`;if(locationMarker)map.removeLayer(locationMarker);locationMarker=L.marker([lat,lon]).addTo(map).bindPopup("Selected location").openPopup();setStatus("Checking selected location…");try{const q=`lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`;const assessed=await apiRequest(`/api/assess?${q}`);if(requestId!==locationRequestId)return;displayAssessment(assessed.assessment??assessed);const cell=await apiRequest(`/api/grid-cell?${q}`);if(requestId!==locationRequestId)return;if(selectedCellLayer)map.removeLayer(selectedCellLayer);selectedCellLayer=L.geoJSON(cell.feature,{style:{color:"#dc2626",weight:3,fillColor:"#f87171",fillOpacity:.22}}).addTo(map);selectedCellLayer.bindPopup(`Selected grid: ${escapeHTML((assessed.assessment??assessed).grid_id??"—")}`);setStatus("Location assessment loaded.");await loadNearbyFacilities()}catch(error){if(requestId!==locationRequestId)return;console.error(error);if(selectedCellLayer){map.removeLayer(selectedCellLayer);selectedCellLayer=null}assessmentDetails.replaceChildren();const p=document.createElement("p");p.className="empty-state";p.textContent=error.message;assessmentDetails.appendChild(p);setStatus(error.message);facilityStatusMessage.textContent="Choose a valid location inside the study area to search facilities."}}
+async function checkLocation(lat,lon){const requestId=++locationRequestId;selectedPosition={lat:Number(lat),lng:Number(lon)};selectedLocation.textContent=`Latitude: ${lat.toFixed(6)}, Longitude: ${lon.toFixed(6)}`;if(locationMarker)map.removeLayer(locationMarker);locationMarker=L.marker([lat,lon]).addTo(map).bindPopup("Selected location").openPopup();setStatus("Checking selected location…");try{const q=`lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`;const assessed=await apiRequest(`/api/assess?${q}`);if(requestId!==locationRequestId)return;displayAssessment(assessed.assessment??assessed);const cell=await apiRequest(`/api/grid-cell?${q}`);if(requestId!==locationRequestId)return;if(selectedCellLayer)map.removeLayer(selectedCellLayer);selectedCellLayer=L.geoJSON(cell.feature,{style:{color:"#dc2626",weight:3,fillColor:"#f87171",fillOpacity:.22}}).addTo(map);selectedCellLayer.bindPopup(`Selected grid: ${escapeHTML((assessed.assessment??assessed).grid_id??"—")}`);setStatus("Location assessment loaded.");
+
+await loadNearbyFacilities();
+
+if (automaticDemoStarted) {
+  showDemoNotification(
+    "GIS assessment updated",
+    "The latest location has been assessed. Mapped police stations, hospitals and bus stops are being displayed where available.",
+    "success"
+  );
+}}catch(error){if(requestId!==locationRequestId)return;console.error(error);if(selectedCellLayer){map.removeLayer(selectedCellLayer);selectedCellLayer=null}assessmentDetails.replaceChildren();const p=document.createElement("p");p.className="empty-state";p.textContent=error.message;assessmentDetails.appendChild(p);setStatus(error.message);facilityStatusMessage.textContent="Choose a valid location inside the study area to search facilities."}}
 map.on("click",e=>checkLocation(e.latlng.lat,e.latlng.lng));
 locateButton.addEventListener("click",()=>{if(!navigator.geolocation){setStatus("Geolocation is not supported by this browser.");return}setStatus("Requesting browser location permission…");navigator.geolocation.getCurrentPosition(p=>{const {latitude,longitude}=p.coords;map.setView([latitude,longitude],15);checkLocation(latitude,longitude)},e=>setStatus(`Could not obtain location: ${e.message}`),{enableHighAccuracy:true,timeout:10000,maximumAge:30000})});
-demoButton.addEventListener("click", async () => {   reviewerDemoMode = true;    const latitude = 12.9716;   const longitude = 77.5946;    selectedRouteOrigin = {     lat: latitude,     lng: longitude,     label: "Bengaluru Reviewer Demo Location"   };    selectedPosition = {     lat: latitude,     lng: longitude   };    map.setView([latitude, longitude], 16);    setStatus("Loading Bengaluru demo location and analysing mapped infrastructure...");    try {     await checkLocation(latitude, longitude);      installRoutePlanner();      $("routeOriginStatus").textContent =       `Starting point: predefined Bengaluru demo location (${latitude.toFixed(5)}, ${longitude.toFixed(5)}).`;      $("routePlannerStatus").textContent =       "Demo location loaded. Enter a Bengaluru destination to compare available driving routes.";      $("routeDestination").placeholder = "Example: Bengaluru City Railway Station";      document.getElementById("routePlannerPanel").scrollIntoView({       behavior: "smooth",       block: "start"     });   } catch (error) {     setStatus("Demo location loaded, but the infrastructure assessment failed. Please retry.");     console.error(error);   } });
+demoButton.addEventListener("click", async () => {
+  reviewerDemoMode = true;
+
+  const latitude = 12.9716;
+  const longitude = 77.5946;
+
+  selectedRouteOrigin = {
+    lat: latitude,
+    lng: longitude,
+    label: "Bengaluru Reviewer Demo Location"
+  };
+
+  selectedPosition = {
+    lat: latitude,
+    lng: longitude
+  };
+
+  map.setView([latitude, longitude], 16);
+
+  setStatus("Loading Bengaluru demo location and analysing mapped infrastructure...");
+
+  try {
+    await checkLocation(latitude, longitude);
+
+    installRoutePlanner();
+
+    $("routeOriginStatus").textContent =
+      `Starting point: predefined Bengaluru demo location (${latitude.toFixed(5)}, ${longitude.toFixed(5)}).`;
+
+    $("routePlannerStatus").textContent =
+      "Demo location loaded. Enter a Bengaluru destination to compare available driving routes.";
+
+    $("routeDestination").placeholder = "Example: Bengaluru City Railway Station";
+
+    document.getElementById("routePlannerPanel").scrollIntoView({
+      behavior: "smooth",
+      block: "start"
+    });
+  } catch (error) {
+    setStatus("Demo location loaded, but the infrastructure assessment failed. Please retry.");
+    console.error(error);
+  }
+});
 function facilityName(item){return item.attributes?.name||item.attributes?.operator||`${CATEGORY[item.category]?.label||"Facility"} mapped feature`}
 function renderFacilityResults(){facilityResults.replaceChildren();facilitySummary.replaceChildren();let total=0;for(const key of Object.keys(CATEGORY)){const items=facilityData[key]||[];total+=items.length;const chip=document.createElement("span");chip.className="summary-chip";chip.textContent=`${CATEGORY[key].label}: ${items.length}`;facilitySummary.appendChild(chip);const card=document.createElement("div");card.className="facility-category";const heading=document.createElement("h3");heading.textContent=`${CATEGORY[key].label} (${items.length})`;card.appendChild(heading);if(!items.length){const empty=document.createElement("p");empty.className="small-note";empty.textContent="No mapped results in this radius.";card.appendChild(empty)}items.forEach(item=>{const row=document.createElement("div");row.className="facility-item";const name=document.createElement("div");name.className="facility-item-name";name.textContent=facilityName(item);const distance=document.createElement("div");distance.className="facility-distance";distance.textContent=`${Number(item.route_distance_m ?? item.distance_m ?? 0).toFixed(0)} m from route · ${item.geometry_type||"Mapped feature"}`;const actions=document.createElement("div");actions.className="facility-item-actions";const show=document.createElement("button");show.className="secondary-button";show.textContent="Show on map";show.addEventListener("click",()=>{map.setView([Number(item.latitude),Number(item.longitude)],17);const marker=facilityLayers[key]._layers;for(const layerId in marker){const layer=marker[layerId];if(layer._facilityItem===item){layer.openPopup();break}}});actions.appendChild(show);row.append(name,distance,actions);card.appendChild(row)});facilityResults.appendChild(card)}if(total===0){const empty=document.createElement("div");empty.className="empty-state";empty.textContent="No mapped facilities were returned for this search.";facilityResults.appendChild(empty)}}
 function clearFacilityLayers(){Object.values(facilityLayers).forEach(layer=>layer.clearLayers())}
@@ -312,14 +365,35 @@ createGeofenceButton.addEventListener("click",createGeofence);startMovementButto
 function installSOSPanel(){
   if(document.getElementById("sosWorkflowPanel")) return;
   const panel=document.createElement("section"); panel.id="sosWorkflowPanel"; panel.className="sos-workflow-panel";
-  panel.innerHTML=`<h3>Emergency SOS — Local Demo</h3><p class="sos-note">This prototype records SOS details locally. Email and SMS notifications are simulated only; nothing is transmitted. This does not contact emergency services.</p>
+  panel.innerHTML=`<h3>Emergency SOS — Local Demo</h3><div style="margin:12px 0;padding:12px;border:1px solid #f59e0b;border-radius:10px;background:#fffbeb;">
+  <h4>Simulated Threat Scenario</h4>
+
+  <p>
+    Demonstrate SOS recording, nearby mapped police stations
+    and hospitals, and simulated notification previews.
+  </p>
+
+  <button
+    id="simulateThreatButton"
+    type="button"
+    style="background:#b91c1c;color:white;border:0;border-radius:8px;padding:12px;font-weight:700;"
+  >
+    Run Simulated Threat Demo
+  </button>
+
+  <p style="font-size:13px;">
+    Academic simulation only. No real police or hospital notifications are sent.
+  </p>
+</div><p class="sos-note">This prototype records SOS details locally. Email and SMS notifications are simulated only; nothing is transmitted. This does not contact emergency services.</p>
   <div id="voiceSOSPanel" class="voice-sos-panel"><h4>Voice-Activated SOS (browser demo)</h4><p>After you tick the acknowledgement, Start Journey can automatically start listening—no SOS-button press is needed at the moment of distress. Saying <strong>“help”</strong>, <strong>“help me”</strong>, <strong>“emergency”</strong>, or <strong>“save me”</strong> triggers a local SOS record and simulated notification preview. Keep this page open with microphone permission enabled. Real police/hospital dispatch and real email/SMS are not connected in this prototype.</p><label class="sos-consent"><input id="voiceSOSArm" type="checkbox"> I understand this is a demo, may mishear speech, and will NOT contact police, hospitals, or send real messages.</label><button id="voiceSOSStart" type="button">Arm &amp; start listening</button><button id="voiceSOSStop" type="button" disabled>Stop listening</button><p id="voiceSOSStatus" role="status" aria-live="polite">Voice SOS is off.</p></div>
   <form id="trustedContactForm"><h4>Trusted contacts (with their consent)</h4><div class="sos-form-grid"><label>Name<input id="contactName" maxlength="100" required></label><label>Phone<input id="contactPhone" maxlength="40" type="tel" placeholder="Optional if email provided"></label><label>Email<input id="contactEmail" maxlength="160" type="email" placeholder="Optional if phone provided"></label></div><label class="sos-consent"><input id="contactConsent" type="checkbox" required> This person has agreed to be listed as a trusted contact.</label><button type="submit">Save contact locally</button></form><div id="trustedContactList" aria-live="polite">Loading contacts…</div>
   <label for="sosMessage">SOS message</label><textarea id="sosMessage" maxlength="500">I may need assistance. Please contact me.</textarea><label class="sos-consent"><input id="sosConfirm" type="checkbox"> I understand this records a demo SOS; notifications are a separate step.</label><button id="recordLocalSOS" type="button" class="sos-record-button">Record SOS locally</button><div class="sos-notify-controls"><label for="sosNotifyChannel">Notification channel</label><select id="sosNotifyChannel"><option value="email">Email</option><option value="sms">SMS</option><option value="both">Both email and SMS</option></select><label class="sos-consent"><input id="sosNotifyConfirm" type="checkbox"> I understand this is a simulated notification preview; no email or SMS will be transmitted.</label><button id="sendSOSNotifications" type="button">Send notifications for latest SOS</button><p id="notificationConfigStatus">Checking notification configuration…</p></div><p id="sosWorkflowStatus" role="status" aria-live="polite"></p><div id="sosHistory"></div>`;
   const anchor=sosButton.closest("section, .card, .panel")||sosButton.parentElement; anchor.insertAdjacentElement("afterend",panel);
   const style=document.createElement("style");style.textContent=`.sos-notify-controls{border-top:1px solid #fecaca;margin-top:14px;padding-top:12px}.sos-notify-controls select{padding:8px;margin:6px}.sos-workflow-panel{margin:18px 0;padding:18px;border:1px solid #fecaca;border-radius:14px;background:#fffafa;color:#1f2937}.sos-workflow-panel h3{margin-top:0}.voice-sos-panel{border:1px solid #f59e0b;background:#fffbeb;border-radius:10px;padding:12px;margin:14px 0}.voice-sos-panel p{line-height:1.45}.voice-sos-panel button{border-radius:7px}.sos-note{padding:10px;background:#fff1f2;border-radius:8px;font-size:.92rem}.sos-form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}.sos-workflow-panel label{display:block;margin:10px 0;font-weight:600}.sos-workflow-panel input:not([type=checkbox]),.sos-workflow-panel textarea{display:block;width:100%;box-sizing:border-box;padding:9px;margin-top:5px;border:1px solid #cbd5e1;border-radius:7px}.sos-consent{display:flex!important;align-items:flex-start;gap:8px;font-weight:400!important}.sos-workflow-panel button{padding:9px 13px;margin:6px 6px 6px 0;cursor:pointer}.sos-record-button{background:#b91c1c;color:white;border:0;border-radius:8px;font-weight:700}.contact-row,.sos-history-row{padding:9px;border-bottom:1px solid #e5e7eb}.sos-remove{margin-left:8px}`;document.head.appendChild(style);
   document.getElementById("trustedContactForm").addEventListener("submit",saveTrustedContact);
-  document.getElementById("recordLocalSOS").addEventListener("click",recordLocalSOS);
+  document.getElementById("recordLocalSOS").addEventListener("click",recordLocalSOS);document
+  .getElementById("simulateThreatButton")
+  .addEventListener("click", simulateThreatDemo);
   document.getElementById("sendSOSNotifications").addEventListener("click",sendSOSNotifications);
   document.getElementById("voiceSOSStart").addEventListener("click",startVoiceSOS);
   document.getElementById("voiceSOSStop").addEventListener("click",stopVoiceSOS);
@@ -370,6 +444,138 @@ async function refreshSOSPanel(){try{const data=await apiRequest("/api/contacts"
 function sosWorkflowMessage(m){const el=document.getElementById("sosWorkflowStatus");if(el)el.textContent=m}
 async function saveTrustedContact(event){event.preventDefault();const body={name:document.getElementById("contactName").value.trim(),phone:document.getElementById("contactPhone").value.trim(),email:document.getElementById("contactEmail").value.trim(),consent_confirmed:document.getElementById("contactConsent").checked};try{await apiRequest("/api/contacts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});event.target.reset();sosWorkflowMessage("Trusted contact saved locally. No message was sent.");await refreshSOSPanel()}catch(e){sosWorkflowMessage(e.message)}}
 async function recordLocalSOS(){if(!document.getElementById("sosConfirm").checked){sosWorkflowMessage("Please confirm this is a local-only demo before recording.");return}const pos=latestLivePosition||selectedPosition;if(!pos){sosWorkflowMessage("No coordinates available. Select a map point or start live tracking first.");return}if(!confirm("Record an SOS demo with these coordinates? This will NOT send SMS/email or contact emergency services."))return;const button=document.getElementById("recordLocalSOS");button.disabled=true;try{const result=await apiRequest("/api/sos",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({latitude:pos.lat,longitude:pos.lng,accuracy_m:latestLivePosition?latestLivePosition.accuracy:null,message:document.getElementById("sosMessage").value.trim(),confirm_demo:true})});sosWorkflowMessage(`${result.message} Record #${result.request.id}; status: ${result.request.status}; ${result.request.contacts_count} consented contact(s) stored in the snapshot.`);window.latestSOSRequestId=result.request.id;await loadSavedEvents();await refreshSOSPanel()}catch(e){sosWorkflowMessage(`SOS record failed: ${e.message}`)}finally{button.disabled=false}}
+// ============================================================
+// SIMULATED THREAT DEMONSTRATION
+// ============================================================
+
+async function simulateThreatDemo() {
+  if (threatDemoRunning) return;
+
+  if (!latestLivePosition) {
+    sosWorkflowMessage(
+      "Please start Live Tracking and wait for a GPS reading."
+    );
+    return;
+  }
+
+  if (Date.now() - lastThreatDemoAt < 30000) {
+    sosWorkflowMessage(
+      "Please wait 30 seconds before running another demo."
+    );
+    return;
+  }
+
+  threatDemoRunning = true;
+  lastThreatDemoAt = Date.now();
+
+  const button = document.getElementById("simulateThreatButton");
+
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Running Demo...";
+  }
+
+  try {
+    sosWorkflowMessage(
+      "SIMULATED THREAT DETECTED — recording demonstration SOS..."
+    );
+
+    const position = latestLivePosition;
+
+    // Retrieve nearby mapped facilities.
+    let policeCount = 0;
+    let hospitalCount = 0;
+
+    try {
+      const facilities = await apiRequest(
+        `/api/nearby-facilities?lat=${encodeURIComponent(position.lat)}&lon=${encodeURIComponent(position.lng)}&radius=5000`
+      );
+
+      const results = facilities.results || {};
+
+      policeCount = (results.police || []).length;
+      hospitalCount = (results.hospitals || []).length;
+    } catch (error) {
+      console.warn("Nearby facility lookup failed:", error);
+    }
+
+    // Save the SOS demonstration record.
+    const response = await apiRequest("/api/sos", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        latitude: position.lat,
+        longitude: position.lng,
+        accuracy_m: position.accuracy,
+        message:
+          "SIMULATED THREAT DEMONSTRATION. " +
+          "This is an academic prototype event, not a real emergency.",
+        confirm_demo: true
+      })
+    });
+
+    const sosId = response.request.id;
+    window.latestSOSRequestId = sosId;
+
+    await loadSavedEvents();
+    await refreshSOSPanel();
+
+    sosWorkflowMessage(
+      `SIMULATION: SOS #${sosId} recorded. ` +
+      `Location: ${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}. ` +
+      `Mapped police records: ${policeCount}. ` +
+      `Mapped hospitals: ${hospitalCount}.`
+    );
+
+    // Generate simulated notification previews.
+    try {
+      const notification = await apiRequest(
+        `/api/sos/${sosId}/notify`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            channel: "both",
+            confirm_send: true
+          })
+        }
+      );
+
+      sosWorkflowMessage(
+        `DEMO COMPLETE. SOS #${sosId} recorded. ` +
+        `Police notification: simulated. ` +
+        `Hospital notification: simulated. ` +
+        `Result: ${notification.status || "processed"}. ` +
+        `No real messages were sent.`
+      );
+
+    } catch (error) {
+      sosWorkflowMessage(
+        `SOS #${sosId} was recorded, but the notification preview failed: ` +
+        error.message
+      );
+    }
+
+  } catch (error) {
+    console.error("Simulated threat demonstration failed:", error);
+
+    sosWorkflowMessage(
+      "Demo failed: " + error.message
+    );
+
+  } finally {
+    threatDemoRunning = false;
+
+    if (button) {
+      button.disabled = false;
+      button.textContent = "Run Simulated Threat Demo";
+    }
+  }
+}
 async function refreshNotificationConfig(){try{const r=await apiRequest("/api/notifications/config");const el=document.getElementById("notificationConfigStatus");el.textContent=`Email: SIMULATED · SMS: SIMULATED. Checking status sends no messages.`}catch(e){const el=document.getElementById("notificationConfigStatus");if(el)el.textContent=`Could not check provider configuration: ${e.message}`}}
 async function sendSOSNotifications(){const id=window.latestSOSRequestId;if(!id){sosWorkflowMessage("Record a new SOS first in this browser session, then choose a notification channel.");return}if(!document.getElementById("sosNotifyConfirm").checked){sosWorkflowMessage("Explicit confirmation is required before sending notifications.");return}const channel=document.getElementById("sosNotifyChannel").value;if(!confirm(`Process SOS #${id} via ${channel.toUpperCase()} for consented contacts? Both email and SMS are simulated previews; nothing will be transmitted.`))return;const button=document.getElementById("sendSOSNotifications");button.disabled=true;try{const r=await apiRequest(`/api/sos/${id}/notify`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({channel,confirm_send:true})});sosWorkflowMessage(`${r.message} Overall status: ${r.status}. SMS is simulated; no external provider was contacted.`);const target=document.getElementById("sosHistory");const block=document.createElement("pre");block.style.whiteSpace="pre-wrap";block.textContent=JSON.stringify(r.results,null,2);target.prepend(block);await refreshSOSPanel()}catch(e){sosWorkflowMessage(`Notification not sent or partially configured: ${e.message}`)}finally{button.disabled=false;document.getElementById("sosNotifyConfirm").checked=false}}
 sosButton.addEventListener("click",()=>{installSOSPanel();document.getElementById("sosWorkflowPanel").scrollIntoView({behavior:"smooth",block:"center"});sosWorkflowMessage("SOS workflow ready. Review the local-only notice before recording.")});
@@ -399,6 +605,141 @@ let liveGeofenceState = null;
 let liveCandidateState = null;
 let liveCandidateCount = 0;
 let liveEventInProgress = false;
+// ============================================================
+// ABHAYASETU AUTOMATIC DEMO CONFIGURATION
+// ============================================================
+
+let automaticDemoStarted = false;
+let threatDemoRunning = false;
+let lastThreatDemoAt = 0;
+
+const AUTOMATIC_GEOFENCE_RADIUS = 250;
+
+function showDemoNotification(title, message, type = "info") {
+  let container = document.getElementById("demoNotificationContainer");
+
+  if (!container) {
+    container = document.createElement("div");
+    container.id = "demoNotificationContainer";
+
+    Object.assign(container.style, {
+      position: "fixed",
+      top: "20px",
+      right: "20px",
+      zIndex: "99999",
+      width: "min(380px, calc(100vw - 40px))"
+    });
+
+    document.body.appendChild(container);
+  }
+
+  const card = document.createElement("div");
+
+  Object.assign(card.style, {
+    marginBottom: "10px",
+    padding: "15px",
+    borderRadius: "12px",
+    background: "#ffffff",
+    color: "#172033",
+    border: `2px solid ${
+      type === "warning" ? "#f59e0b" :
+      type === "success" ? "#16a34a" : "#2563eb"
+    }`,
+    boxShadow: "0 8px 24px #0002",
+    fontSize: "14px"
+  });
+
+  const heading = document.createElement("strong");
+  heading.textContent = title;
+
+  const text = document.createElement("p");
+  text.textContent = message;
+  text.style.marginBottom = "0";
+
+  card.append(heading, text);
+  container.prepend(card);
+
+  setTimeout(() => card.remove(), 10000);
+}
+
+function activateAutomaticGeofence(position) {
+  if (automaticDemoStarted) return;
+
+  if (!position ||
+      !Number.isFinite(position.lat) ||
+      !Number.isFinite(position.lng)) {
+    return;
+  }
+
+  automaticDemoStarted = true;
+
+  // Use the first valid GPS location as the geofence centre.
+  selectedPosition = {
+    lat: position.lat,
+    lng: position.lng
+  };
+
+  radiusSelect.value = String(AUTOMATIC_GEOFENCE_RADIUS);
+
+  // Create the geofence automatically.
+  createGeofence();
+
+  // Remove the simulated movement marker and route.
+  // Live GPS will now determine geofence transitions.
+  stopMovement(false);
+
+  if (simulatedMarker) {
+    map.removeLayer(simulatedMarker);
+    simulatedMarker = null;
+  }
+
+  movementRoute = [];
+  movementIndex = 0;
+  previousInsideState = null;
+
+  // Centre the map on the actual location.
+  map.setView(
+    [position.lat, position.lng],
+    16
+  );
+
+  showDemoNotification(
+    "Live tracking activated",
+    "Your geofence has been created automatically with a 250-metre radius.",
+    "success"
+  );
+
+  showDemoNotification(
+    "GIS assessment started",
+    "The application is loading mapped infrastructure and nearby support facilities."
+  );
+
+  // Display the map section.
+  const mapSection = document.getElementById("mapSection");
+
+  if (mapSection) {
+    const mapLink = document.querySelector(
+      '.side-nav .nav-link[href="#mapSection"]'
+    );
+
+    if (mapLink) mapLink.click();
+
+    setTimeout(() => {
+      map.invalidateSize();
+      map.setView([position.lat, position.lng], 16);
+    }, 400);
+  }
+
+  // Automatically show the SOS demo panel.
+  installSOSPanel();
+
+  // Refresh the geofence status.
+  geofenceStatus.textContent = "Active · 250 m";
+
+  setGeofenceMessage(
+    "Automatic geofence active. Live GPS will monitor entry and exit."
+  );
+}
 
 function setLiveStatus(message, type = "") {
   liveTrackingStatus.textContent = message;
@@ -472,7 +813,13 @@ function handleLivePosition(position) {
     setLiveStatus("The browser returned invalid coordinates.", "error");
     return;
   }
-  latestLivePosition = { lat: latitude, lng: longitude, accuracy: Number(accuracy), timestamp: position.timestamp };
+  latestLivePosition = { lat: latitude, lng: longitude, accuracy: Number(accuracy), timestamp: position.timestamp };// Automatically initialise the demo after the first valid GPS reading.
+if (!automaticDemoStarted) {
+  activateAutomaticGeofence({
+    lat: latitude,
+    lng: longitude
+  });
+}
   monitorJourneyPosition(latestLivePosition).catch(error => console.warn("Journey monitor error", error));
   processLiveGeofence({ lat: latitude, lng: longitude, accuracy: Number(accuracy) }).catch(error => { console.error(error); setGeofenceMessage("Live geofence processing failed: " + error.message); });
   liveLatitude.textContent = latitude.toFixed(6);
@@ -692,14 +1039,47 @@ function formatRouteDuration(seconds) {
 async function findAlternativeRoutes() {
   installRoutePlanner();
   const destinationText = $("routeDestination").value.trim();
-  if (!latestLivePosition) {
-    setRouteStatus("Start Live GPS Tracking first. The starting point is taken automatically from your current location.", true);
-    $("routeOriginStatus").textContent = "Starting point: live GPS is not available yet.";
-    return;
-  }
-  const origin = {lat: latestLivePosition.lat, lng: latestLivePosition.lng, label: "Current live GPS location"};
-  selectedRouteOrigin = origin;
-  $("routeOriginStatus").textContent = `Starting point: live GPS (${origin.lat.toFixed(5)}, ${origin.lng.toFixed(5)}).`;
+
+// Use live GPS when available; otherwise use the predefined
+// Bengaluru location when Reviewer Demo mode is active.
+let origin = null;
+
+if (latestLivePosition) {
+  origin = {
+    lat: latestLivePosition.lat,
+    lng: latestLivePosition.lng,
+    label: "Current live GPS location"
+  };
+} else if (
+  reviewerDemoMode &&
+  selectedRouteOrigin &&
+  Number.isFinite(Number(selectedRouteOrigin.lat)) &&
+  Number.isFinite(Number(selectedRouteOrigin.lng))
+) {
+  origin = {
+    lat: Number(selectedRouteOrigin.lat),
+    lng: Number(selectedRouteOrigin.lng),
+    label: "Bengaluru Reviewer Demo Location"
+  };
+}
+
+if (!origin) {
+  setRouteStatus(
+    "Click Use Demo Location or start Live GPS Tracking before planning your route.",
+    true
+  );
+
+  $("routeOriginStatus").textContent =
+    "Starting point: not selected.";
+
+  return;
+}
+
+selectedRouteOrigin = origin;
+
+$("routeOriginStatus").textContent =
+  `Starting point: ${origin.label} ` +
+  `(${origin.lat.toFixed(5)}, ${origin.lng.toFixed(5)}).`;
   if (!destinationText) { setRouteStatus("Enter a destination first.", true); $("routeDestination").focus(); return; }
   const button = $("findRoutesButton");
   button.disabled = true;
